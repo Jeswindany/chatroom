@@ -1,0 +1,42 @@
+<% layout('layouts/boilerplate') %>
+<div class="form container-fluid">
+	<div class="card ">
+		<div class="card-body">
+			<h2 class="card-title title">Verify</h2>
+			<p class="card-text">The OTP has been sent to <%= email %> successfully!</p>
+			<p class="card-text">please check your spam folder too!</p>
+
+			<form action="/verify" method="POST" class="needs-validation" novalidate>
+				<div class="form-input">
+					<label for="otp" class="form-label">Enter your OTP</label>
+					<input type="text" name="otp" id="otp" class="form-control" maxlength="6" required>
+					<div class="valid-feedback">
+						Looks good!
+					</div>
+				</div>
+
+				<div class="form-input">
+					<button type="submit" class="btn-secondary">Verify</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+
+<script>
+	(function() {
+		'use strict';
+		window.addEventListener('load', function() {
+			var forms = document.getElementsByClassName('needs-validation');
+			var validation = Array.prototype.filter.call(forms, function(form) {
+				form.addEventListener('submit', function(event) {
+					if (form.checkValidity() === false) {
+						event.preventDefault();
+						event.stopPropagation();
+					}
+					form.classList.add('was-validated');
+				}, false);
+			});
+		}, false);
+	})();
+</script>
