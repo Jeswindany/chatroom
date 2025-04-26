@@ -1,23 +1,24 @@
+require("dotenv").config();
+
 const express = require("express");
 const mongoose = require("mongoose");
 const path = require("path");
 const ejsMate = require("ejs-mate");
 const session = require("express-session");
-const { Server } = require("socket.io");
+const socketIo = require("socket.io");
 const bcrypt = require("bcrypt");
 const flash = require("connect-flash");
 
-require("dotenv").config();
-
 const User = require("./models/User");
 const generateOTP = require("./utils/generateOTP");
+const sendOTP = require("./utils/sendOTP");
+const catchAsync = require("./utils/catchAsync");
 
 const app = express();
 const server = require("http").createServer(app);
-const io = new Server(server);
+const io = socketIo(server);
 
-const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+const nodemailer = require("nodemailer");
 
 mongoose.connect(process.env.MONGO_URL);
 
@@ -91,20 +92,25 @@ app
   .get((req, res) => {
     res.render("register.ejs");
   })
-  .post(async (req, res) => {
-    const otp = generateOTP();
-    req.session.pendingUser = req.body;
-    req.session.otp = otp;
+  .post(
+    catchAsync(async (req, res) => {
+      const { email: toEmail } = req.body;
+      const existingUser = await User.findOne({ email: toEmail });
 
-    await resend.emails.send({
-      from: "Chatroom OTP <chatroom@resend.dev>",
-      to: req.body.email,
-      subject: "Your Chatroom OTP",
-      html: `<h2>Welcome to Chatroom!</h2><h5>We hope you enjoy your time here!</h5><br><p>Your OTP is: <strong>${otp}</strong></p>`,
-    });
+      if (existingUser) {
+        req.flash("error", "Email is already registered");
+        return res.redirect("/login");
+      }
 
-    res.render("verify", { ...req.body });
-  });
+      const otp = generateOTP();
+      req.session.pendingUser = req.body;
+      req.session.otp = otp;
+
+      await sendOTP(toEmail, otp);
+
+      res.render("verify", { ...req.body });
+    })
+  );
 
 app.post("/verify", async (req, res) => {
   const { displayName, email, password } = req.session.pendingUser;
@@ -134,7 +140,7 @@ app.post("/verify", async (req, res) => {
 
 app.get("/chatroom", (req, res) => {
   if (req.session.currentUser) {
-    res.render("chatroom");
+    res.render("chatroom", { currentUser: req.session.currentUser });
   } else {
     req.flash("error", "Please login before entering chatroom!");
     res.redirect("/login");
@@ -148,15 +154,26 @@ app.post("/logout", (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  console.log("🟢 New user connected:", socket.id);
-
-  socket.on("chat message", (msg) => {
-    io.emit("chat message", msg);
+  // Handle user join event
+  socket.on("user-joined", (displayName) => {
+    console.log(`${displayName} has joined the chat`);
+    io.emit("user-joined", `${displayName} has joined the chat`);
   });
 
+  // Handle user message event
+  socket.on("send-message", (message) => {
+    io.emit("chat-message", { message });
+  });
+
+  // Handle user disconnect event
   socket.on("disconnect", () => {
-    console.log("🔴 User disconnected:", socket.id);
+    console.log("user disconnected");
   });
+});
+
+// Error Handling
+app.use((err, req, res, next) => {
+  res.render("error", { err });
 });
 
 server.listen(3000, () => {
