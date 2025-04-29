@@ -55,13 +55,17 @@ app.get("/", (req, res) => {
 app
   .route("/login")
   .get((req, res) => {
+    if (req.session.currentUser) {
+      req.flash("success", "You are already logged in!");
+      return res.redirect("/chatroom");
+    }
     res.render("login.ejs");
   })
   .post(async (req, res) => {
     const { email, password } = req.body;
 
     try {
-      const user = await User.findOne({ email });
+      const user = await User.findOne({ email: email.trim().toLowerCase() });
 
       if (!user) {
         req.flash("error", "No user found with that email");
@@ -90,12 +94,18 @@ app
 app
   .route("/register")
   .get((req, res) => {
+    if (req.session.currentUser) {
+      req.flash("success", "You are already logged in!");
+      return res.redirect("/chatroom");
+    }
     res.render("register.ejs");
   })
   .post(
     catchAsync(async (req, res) => {
       const { email: toEmail } = req.body;
-      const existingUser = await User.findOne({ email: toEmail });
+      const existingUser = await User.findOne({
+        email: toEmail.trim().toLowerCase(),
+      });
 
       if (existingUser) {
         req.flash("error", "Email is already registered");
@@ -103,7 +113,14 @@ app
       }
 
       const otp = generateOTP();
-      req.session.pendingUser = req.body;
+
+      const pendingUser = {
+        displayName: req.body.displayName.trim(),
+        email: toEmail.trim().toLowerCase(),
+        password: req.body.password,
+      };
+      req.session.pendingUser = pendingUser;
+
       req.session.otp = otp;
 
       await sendOTP(toEmail, otp);
@@ -113,13 +130,18 @@ app
   );
 
 app.post("/verify", async (req, res) => {
+  if (!req.session.pendingUser || !req.session.otp) {
+    req.flash("error", "Session expired. Please register again.");
+    return res.redirect("/register");
+  }
+
   const { displayName, email, password } = req.session.pendingUser;
 
   if (req.body.otp === req.session.otp) {
     const hashedPassword = await bcrypt.hash(password, 12);
     const newUser = await User.create({
-      displayName,
-      email,
+      displayName: displayName.trim(),
+      email: email.trim().toLowerCase(),
       password: hashedPassword,
     });
 
@@ -153,27 +175,32 @@ app.post("/logout", (req, res) => {
   });
 });
 
+// Error Handling
+app.use((err, req, res, next) => {
+  res.status(err.status || 500);
+  res.render("error", { err });
+});
+
+const userMap = new Map(); // Map socket.id to displayName
+
 io.on("connection", (socket) => {
-  // Handle user join event
+  // Track user who joined
   socket.on("user-joined", (displayName) => {
-    console.log(`${displayName} has joined the chat`);
+    userMap.set(socket.id, displayName);
     io.emit("user-joined", `${displayName} has joined the chat`);
   });
 
-  // Handle user message event
-  socket.on("send-message", (message) => {
-    io.emit("chat-message", { message });
+  // Handle chat messages
+  socket.on("send-message", ({ displayName, message }) => {
+    io.emit("chat-message", { displayName, message });
   });
 
-  // Handle user disconnect event
+  // Handle user disconnect
   socket.on("disconnect", () => {
-    console.log("user disconnected");
+    const displayName = userMap.get(socket.id) || "A user";
+    io.emit("user-disconnected", `${displayName} has left the chat`);
+    userMap.delete(socket.id);
   });
-});
-
-// Error Handling
-app.use((err, req, res, next) => {
-  res.render("error", { err });
 });
 
 server.listen(3000, () => {
