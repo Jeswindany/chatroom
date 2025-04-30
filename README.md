@@ -1,6 +1,6 @@
 # 💬 Real-Time Chatroom App
 
-A real-time chatroom application where users can register using email OTP verification and chat anonymously with others. Built with **Node.js**, **Express**, **Socket.IO**, and **MongoDB**.
+A real-time chatroom application where users can register using email OTP verification and chat with strangers. Built with **Node.js**, **Express**, **Socket.IO**, and **MongoDB**.
 
 ## 🚀 Features
 
