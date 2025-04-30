@@ -8,6 +8,7 @@ const session = require("express-session");
 const socketIo = require("socket.io");
 const bcrypt = require("bcrypt");
 const flash = require("connect-flash");
+const MongoStore = require("connect-mongo");
 
 const User = require("./models/User");
 const generateOTP = require("./utils/generateOTP");
@@ -27,6 +28,10 @@ app.use(
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGO_URL,
+      collectionName: "sessions",
+    }),
     cookie: {
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
