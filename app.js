@@ -21,7 +21,14 @@ const io = socketIo(server);
 
 const nodemailer = require("nodemailer");
 
-mongoose.connect(process.env.MONGO_URL);
+mongoose
+  .connect(process.env.MONGO_URL)
+  .then(() => {
+    console.log("Database connected");
+  })
+  .catch((err) => {
+    console.error("Database connection error:", err);
+  });
 
 app.use(
   session({
