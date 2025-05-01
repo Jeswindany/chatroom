@@ -112,6 +112,10 @@ body {
   align-items: center;
 }
 
+.form-input {
+  padding: 10px 0px;
+}
+
 .flash-message {
   position: fixed;
   top: 20px;

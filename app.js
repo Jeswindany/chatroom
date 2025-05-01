@@ -104,6 +104,56 @@ app
   });
 
 app
+  .route("/forgot-password")
+  .get((req, res) => {
+    res.render("forgot-password");
+  })
+  .post(
+    catchAsync(async (req, res) => {
+      const { email } = req.body;
+      const user = await User.findOne({ email: email.trim().toLowerCase() });
+
+      if (!user) {
+        req.flash("error", "No account with that email.");
+        return res.redirect("/login");
+      }
+
+      const otp = generateOTP();
+      req.session.resetEmail = email;
+      req.session.resetOTP = otp;
+      await sendOTP(email, otp);
+
+      res.render("verify-reset", { email });
+    })
+  );
+
+app.post(
+  "/verify-reset",
+  catchAsync(async (req, res) => {
+    if (req.body.otp !== req.session.resetOTP) {
+      req.flash("error", "Incorrect OTP.");
+      return res.redirect("/forgot-password");
+    }
+    res.render("reset-password");
+  })
+);
+
+app.post(
+  "/reset-password",
+  catchAsync(async (req, res) => {
+    const email = req.session.resetEmail;
+    const newPassword = await bcrypt.hash(req.body.password, 12);
+    await User.findOneAndUpdate({ email }, { password: newPassword });
+
+    delete req.session.resetOTP;
+    delete req.session.resetEmail;
+
+    req.flash("success", "Password reset successfully!");
+    res.redirect("/login");
+  })
+);
+
+app
   .route("/register")
   .get((req, res) => {
     if (req.session.currentUser) {
