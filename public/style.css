@@ -141,3 +141,22 @@ body {
 .navbar-brand {
   font-family: "Dancing Script", cursive;
 }
+
+.profile-img {
+  cursor: pointer;
+  color: var(--secondary-light);
+}
+
+.profile-img:hover {
+  color: var(--secondary-dark);
+}
+
+.card-subtitle {
+  font-size: medium;
+}
+
+.profile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}

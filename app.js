@@ -35,10 +35,10 @@ app.use(
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGO_URL,
-      collectionName: "sessions",
-    }),
+    // store: MongoStore.create({
+    //   mongoUrl: process.env.MONGO_URL,
+    //   collectionName: "sessions",
+    // }),
     cookie: {
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
@@ -230,6 +230,39 @@ app.get("/chatroom", (req, res) => {
     res.redirect("/login");
   }
 });
+
+app
+  .route("/profile")
+  .get(
+    catchAsync(async (req, res) => {
+      if (req.session.currentUser) {
+        const user = await User.findById(req.session.currentUser.id);
+        return res.render("profile", { user });
+      } else {
+        req.flash("error", "Please login before entering profile!");
+        res.redirect("login");
+      }
+    })
+  )
+  .post(
+    catchAsync(async (req, res) => {
+      if (!req.session.currentUser) {
+        req.flash("error", "Session expired! Please login again");
+        return res.redirect("login");
+      }
+
+      const { displayName } = req.body;
+      await User.findByIdAndUpdate(req.session.currentUser.id, {
+        displayName,
+      });
+
+      req.flash(
+        "success",
+        "Name change successful! It will take effect from your next login!"
+      );
+      res.redirect("/chatroom");
+    })
+  );
 
 app.post("/logout", (req, res) => {
   req.session.destroy(() => {
