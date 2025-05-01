@@ -8,7 +8,6 @@ const session = require("express-session");
 const socketIo = require("socket.io");
 const flash = require("connect-flash");
 const MongoStore = require("connect-mongo");
-const nodemailer = require("nodemailer");
 const { setupSocket } = require("./utils/socket");
 
 const app = express();
@@ -31,10 +30,10 @@ app.use(
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
-    // store: MongoStore.create({
-    //   mongoUrl: process.env.MONGO_URL,
-    //   collectionName: "sessions",
-    // }),
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGO_URL,
+      collectionName: "sessions",
+    }),
     cookie: {
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
