@@ -6,20 +6,14 @@ const path = require("path");
 const ejsMate = require("ejs-mate");
 const session = require("express-session");
 const socketIo = require("socket.io");
-const bcrypt = require("bcrypt");
 const flash = require("connect-flash");
 const MongoStore = require("connect-mongo");
-
-const User = require("./models/User");
-const generateOTP = require("./utils/generateOTP");
-const sendOTP = require("./utils/sendOTP");
-const catchAsync = require("./utils/catchAsync");
+const nodemailer = require("nodemailer");
+const { setupSocket } = require("./utils/socket");
 
 const app = express();
 const server = require("http").createServer(app);
 const io = socketIo(server);
-
-const nodemailer = require("nodemailer");
 
 mongoose
   .connect(process.env.MONGO_URL)
@@ -29,6 +23,8 @@ mongoose
   .catch((err) => {
     console.error("Database connection error:", err);
   });
+
+setupSocket(io);
 
 app.use(
   session({
@@ -60,242 +56,23 @@ app.set("view engine", "ejs");
 app.engine("ejs", ejsMate);
 app.set("views", path.join(__dirname, "views"));
 
+// Routes
+const authRoutes = require("./routes/authRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+const userRoutes = require("./routes/userRoutes");
+
 app.get("/", (req, res) => {
   res.render("index.ejs");
 });
 
-app
-  .route("/login")
-  .get((req, res) => {
-    if (req.session.currentUser) {
-      req.flash("success", "You are already logged in!");
-      return res.redirect("/chatroom");
-    }
-    res.render("login.ejs");
-  })
-  .post(async (req, res) => {
-    const { email, password } = req.body;
-
-    try {
-      const user = await User.findOne({ email: email.trim().toLowerCase() });
-
-      if (!user) {
-        req.flash("error", "No user found with that email");
-        return res.redirect("/login");
-      }
-
-      const isValid = await user.validPassword(password);
-      if (!isValid) {
-        req.flash("error", "Incorrect password");
-        return res.redirect("/login");
-      }
-
-      req.session.currentUser = {
-        id: user._id,
-        displayName: user.displayName,
-      };
-
-      res.redirect("/chatroom");
-    } catch (err) {
-      console.error(err);
-      req.flash("error", "Something went wrong, try again later");
-      res.redirect("/login");
-    }
-  });
-
-app
-  .route("/forgot-password")
-  .get((req, res) => {
-    res.render("forgot-password");
-  })
-  .post(
-    catchAsync(async (req, res) => {
-      const { email } = req.body;
-      const user = await User.findOne({ email: email.trim().toLowerCase() });
-
-      if (!user) {
-        req.flash("error", "No account with that email.");
-        return res.redirect("/login");
-      }
-
-      const otp = generateOTP();
-      req.session.resetEmail = email;
-      req.session.resetOTP = otp;
-      await sendOTP(email, otp);
-
-      res.render("verify-reset", { email });
-    })
-  );
-
-app.post(
-  "/verify-reset",
-  catchAsync(async (req, res) => {
-    if (req.body.otp !== req.session.resetOTP) {
-      req.flash("error", "Incorrect OTP.");
-      return res.redirect("/forgot-password");
-    }
-    res.render("reset-password");
-  })
-);
-
-app.post(
-  "/reset-password",
-  catchAsync(async (req, res) => {
-    const email = req.session.resetEmail;
-    const newPassword = await bcrypt.hash(req.body.password, 12);
-    await User.findOneAndUpdate({ email }, { password: newPassword });
-
-    delete req.session.resetOTP;
-    delete req.session.resetEmail;
-
-    req.flash("success", "Password reset successfully!");
-    res.redirect("/login");
-  })
-);
-
-app
-  .route("/register")
-  .get((req, res) => {
-    if (req.session.currentUser) {
-      req.flash("success", "You are already logged in!");
-      return res.redirect("/chatroom");
-    }
-    res.render("register.ejs");
-  })
-  .post(
-    catchAsync(async (req, res) => {
-      const { email: toEmail } = req.body;
-      const existingUser = await User.findOne({
-        email: toEmail.trim().toLowerCase(),
-      });
-
-      if (existingUser) {
-        req.flash("error", "Email is already registered");
-        return res.redirect("/login");
-      }
-
-      const otp = generateOTP();
-
-      const pendingUser = {
-        displayName: req.body.displayName.trim(),
-        email: toEmail.trim().toLowerCase(),
-        password: req.body.password,
-      };
-      req.session.pendingUser = pendingUser;
-
-      req.session.otp = otp;
-
-      await sendOTP(toEmail, otp);
-
-      res.render("verify", { ...req.body });
-    })
-  );
-
-app.post("/verify", async (req, res) => {
-  if (!req.session.pendingUser || !req.session.otp) {
-    req.flash("error", "Session expired. Please register again.");
-    return res.redirect("/register");
-  }
-
-  const { displayName, email, password } = req.session.pendingUser;
-
-  if (req.body.otp === req.session.otp) {
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const newUser = await User.create({
-      displayName: displayName.trim(),
-      email: email.trim().toLowerCase(),
-      password: hashedPassword,
-    });
-
-    req.session.currentUser = {
-      id: newUser._id,
-      displayName: newUser.displayName,
-    };
-
-    delete req.session.otp;
-    delete req.session.pendingUser;
-
-    res.redirect("/chatroom");
-  } else {
-    req.flash("error", "Incorrect OTP");
-    return res.redirect("/register");
-  }
-});
-
-app.get("/chatroom", (req, res) => {
-  if (req.session.currentUser) {
-    res.render("chatroom", { currentUser: req.session.currentUser });
-  } else {
-    req.flash("error", "Please login before entering chatroom!");
-    res.redirect("/login");
-  }
-});
-
-app
-  .route("/profile")
-  .get(
-    catchAsync(async (req, res) => {
-      if (req.session.currentUser) {
-        const user = await User.findById(req.session.currentUser.id);
-        return res.render("profile", { user });
-      } else {
-        req.flash("error", "Please login before entering profile!");
-        res.redirect("login");
-      }
-    })
-  )
-  .post(
-    catchAsync(async (req, res) => {
-      if (!req.session.currentUser) {
-        req.flash("error", "Session expired! Please login again");
-        return res.redirect("login");
-      }
-
-      const { displayName } = req.body;
-      await User.findByIdAndUpdate(req.session.currentUser.id, {
-        displayName,
-      });
-
-      req.flash(
-        "success",
-        "Name change successful! It will take effect from your next login!"
-      );
-      res.redirect("/chatroom");
-    })
-  );
-
-app.post("/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.redirect("/login");
-  });
-});
+app.use("/", authRoutes);
+app.use("/chatroom", chatRoutes);
+app.use("/profile", userRoutes);
 
 // Error Handling
 app.use((err, req, res, next) => {
   res.status(err.status || 500);
   res.render("error", { err });
-});
-
-const userMap = new Map(); // Map socket.id to displayName
-
-io.on("connection", (socket) => {
-  // Track user who joined
-  socket.on("user-joined", (displayName) => {
-    userMap.set(socket.id, displayName);
-    io.emit("user-joined", `${displayName} has joined the chat`);
-  });
-
-  // Handle chat messages
-  socket.on("send-message", ({ displayName, message }) => {
-    io.emit("chat-message", { displayName, message });
-  });
-
-  // Handle user disconnect
-  socket.on("disconnect", () => {
-    const displayName = userMap.get(socket.id) || "A user";
-    io.emit("user-disconnected", `${displayName} has left the chat`);
-    userMap.delete(socket.id);
-  });
 });
 
 server.listen(process.env.PORT || 3000, () => {
